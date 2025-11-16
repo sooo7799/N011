@@ -1,0 +1,57 @@
+module text_lcd(
+    input clk,
+    input rst,
+    input [7:0] dac_data,
+    output reg LCD_E,
+    output reg LCD_RS,
+    output reg LCD_RW,
+    output reg [7:0] LCD_DATA
+);
+
+    reg [4:0] state;
+    reg [7:0] upper_hex, lower_hex;
+
+    // HEX → ASCII 변환
+    function [7:0] hex_to_ascii;
+        input [3:0] hex;
+        begin
+            if(hex < 10)
+                hex_to_ascii = 8'h30 + hex;
+            else
+                hex_to_ascii = 8'h41 + (hex - 10); // A~F
+        end
+    endfunction
+
+    always @(posedge clk) begin
+        if (!rst) begin
+            state <= 0;
+            LCD_E <= 0;
+            LCD_RS <= 0;
+            LCD_RW <= 0;
+            LCD_DATA <= 0;
+
+        end else begin
+            upper_hex = dac_data[7:4];
+            lower_hex = dac_data[3:0];
+
+            case(state)
+                0: begin LCD_RS<=0; LCD_DATA<=8'h38; state<=1; end  // Function set
+                1: begin LCD_DATA<=8'h0C; state<=2; end             // Display ON
+                2: begin LCD_DATA<=8'h01; state<=3; end             // Clear display
+                3: begin LCD_DATA<=8'h80; state<=4; end             // DDRAM line1
+                4: begin LCD_RS<=1; LCD_DATA<="D"; state<=5; end
+                5: begin LCD_DATA<="A"; state<=6; end
+                6: begin LCD_DATA<="C"; state<=7; end
+                7: begin LCD_DATA<=":"; state<=8; end
+                8: begin LCD_DATA<=hex_to_ascii(upper_hex); state<=9; end
+                9: begin LCD_DATA<=hex_to_ascii(lower_hex); state<=10; end
+                10: begin LCD_RS<=0; LCD_DATA<=8'hC0; state<=11; end // Line2
+                11: begin LCD_RS<=1; LCD_DATA<="V"; state<=12; end
+                12: begin LCD_DATA<="A"; state<=13; end
+                13: begin LCD_DATA<="L"; state<=14; end
+                14: begin LCD_DATA<=":"; state<=15; end
+                15: begin LCD_DATA<=dac_data; state<=15; end
+            endcase
+        end
+    end
+endmodule
