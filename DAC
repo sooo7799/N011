@@ -1,0 +1,127 @@
+module DAC(
+    input clk,
+    input rst,
+    input [5:0] btn,
+    input add_sel,
+    output reg dac_csn,
+    output reg dac_ldcn,
+    output reg dac_wrtn,
+    output reg dac_a_b,
+    output reg [7:0] dac_d,
+    output reg [7:0] led_out
+);
+
+    reg [7:0] dac_d_temp = 0;
+    reg [7:0] cnt = 0;
+    wire [5:0] btn_t;
+    reg [1:0] state;
+
+    parameter DELAY   = 2'b00;
+    parameter SET_WRN = 2'b01;
+    parameter UP_DATA = 2'b10;
+
+    // ------- 원샷 -------
+    oneshot_universal #(.WIDTH(6)) O1(
+        .clk(clk),
+        .rst(rst),
+        .btn(btn),
+        .btn_trig(btn_t)
+    );
+
+    // ------- FSM (동기 Reset) -------
+    always @(posedge clk) begin
+        if (!rst) begin
+            state <= DELAY;
+        end else begin
+            case (state)
+                DELAY:   if (cnt == 200) state <= SET_WRN;
+                SET_WRN: if (cnt == 50)  state <= UP_DATA;
+                UP_DATA: if (cnt == 30)  state <= DELAY;
+                default: state <= DELAY;
+            endcase
+        end
+    end
+
+    // ------- CNT -------
+    always @(posedge clk) begin
+        if (!rst) begin
+            cnt <= 0;
+        end else begin
+            case(state)
+                DELAY:   cnt <= (cnt >= 200) ? 0 : cnt + 1;
+                SET_WRN: cnt <= (cnt >= 50)  ? 0 : cnt + 1;
+                UP_DATA: cnt <= (cnt >= 30)  ? 0 : cnt + 1;
+                default: cnt <= 0;
+            endcase
+        end
+    end
+
+    // ------- DAC Write Timing -------
+    always @(posedge clk) begin
+        if (!rst) begin
+            dac_wrtn <= 1;
+            dac_csn  <= 0;
+            dac_ldcn <= 0;
+            dac_a_b  <= add_sel;
+        end else begin
+            case(state)
+                DELAY:   dac_wrtn <= 1;
+                SET_WRN: dac_wrtn <= 0;
+                UP_DATA: dac_wrtn <= 1;
+                default: dac_wrtn <= 1;
+            endcase
+        end
+    end
+
+    // ------- BUTTON → dac_d_temp 변화 -------
+    always @(posedge clk) begin
+        if (!rst) begin
+            dac_d_temp <= 0;
+        end else begin
+            if (btn_t[0]) dac_d_temp <= dac_d_temp - 1;    // 1 감소
+            else if (btn_t[1]) dac_d_temp <= dac_d_temp + 1; // 1 증가
+            else if (btn_t[2]) dac_d_temp <= dac_d_temp - 2; // 2 감소
+            else if (btn_t[3]) dac_d_temp <= dac_d_temp + 2; // 2 증가
+            else if (btn_t[4]) dac_d_temp <= dac_d_temp - 8; // 8 감소
+            else if (btn_t[5]) dac_d_temp <= dac_d_temp + 8; // 8 증가
+        end
+    end
+
+    // ------- DAC Output -------
+    always @(posedge clk) begin
+        if (!rst) begin
+            dac_d <= 0;
+        end else begin
+            if (state == UP_DATA)
+                dac_d <= dac_d_temp;
+        end
+    end
+
+    // ------- LED -------
+    always @(posedge clk) begin
+        if (!rst) led_out <= 0;
+        else      led_out <= dac_d_temp;
+    end
+// 7-segment outputs
+wire [6:0] seg0, seg1;
+
+seg_decoder SEG_LOW (
+    .hex(dac_d_temp[3:0]),
+    .seg(seg0)
+);
+
+seg_decoder SEG_HIGH (
+    .hex(dac_d_temp[7:4]),
+    .seg(seg1)
+);
+text_lcd LCD_DISPLAY (
+    .clk(clk),
+    .rst(rst),
+    .dac_data(dac_d_temp),
+    .LCD_E(LCD_E),
+    .LCD_RS(LCD_RS),
+    .LCD_RW(LCD_RW),
+    .LCD_DATA(LCD_DATA)
+);
+
+endmodule
